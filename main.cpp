@@ -4,20 +4,29 @@
 
 #define SCREEN_WIDTH 1280
 #define SCREEN_HEIGHT 720
-#define SPRITE_WIDTH 140
-#define SPRITE_HEIGHT 200 // Rounded height of each frame
-#define FRAME_RATE 60 // Desired frame rate
+#define SPRITE_WIDTH 967/8
+#define SPRITE_HEIGHT 158 // Rounded height of each frame
+#define FRAME_RATE 60     // Desired frame rate
 
 bool running;
-
+int xpos = 550;
+int ypos = 200;
 // Number of frames in the animation
-const int TOTAL_FRAMES = 6;
+const int TOTAL_FRAMES = 8;
 
 // Frames per row in the spritesheet
-const int FRAMES_PER_ROW = 6;
+const int FRAMES_PER_ROW = 8;
 
 // Delay between frames in milliseconds
-const int FRAME_DELAY = 150;
+const int FRAME_DELAY = 100;
+
+void toggleFullscreen(SDL_Window *window)
+{
+    Uint32 fullscreenFlag = SDL_WINDOW_FULLSCREEN_DESKTOP;
+    bool isFullscreen = SDL_GetWindowFlags(window) & fullscreenFlag;
+    SDL_SetWindowFullscreen(window, isFullscreen ? 0 : fullscreenFlag);
+    SDL_ShowCursor(isFullscreen); // Hide cursor in fullscreen, show in windowed mode
+}
 
 int main(int argc, const char *argv[])
 {
@@ -39,6 +48,7 @@ int main(int argc, const char *argv[])
     }
 
     SDL_Window *window = SDL_CreateWindow("2D Game", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, SCREEN_WIDTH, SCREEN_HEIGHT, 0);
+
     if (window == NULL)
     {
         std::cerr << "SDL_CreateWindow Error: " << SDL_GetError() << std::endl;
@@ -47,6 +57,7 @@ int main(int argc, const char *argv[])
         return 1;
     }
 
+    // Create the renderer
     SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
     if (renderer == NULL)
     {
@@ -58,7 +69,7 @@ int main(int argc, const char *argv[])
     }
 
     // Load the spritesheet image
-    SDL_Surface *spriteSheetSurface = IMG_Load("or-removebg-preview.png");
+    SDL_Surface *spriteSheetSurface = IMG_Load("/home/usr/2d game/sprites/ZombieWalk.png");
     if (spriteSheetSurface == NULL)
     {
         std::cerr << "IMG_Load Error: " << IMG_GetError() << std::endl;
@@ -81,15 +92,41 @@ int main(int argc, const char *argv[])
         return 1;
     }
 
-    // Initial position of the stickman
-    SDL_Rect dstRect = {SCREEN_WIDTH / 2 - SPRITE_WIDTH / 2, SCREEN_HEIGHT / 2 - SPRITE_HEIGHT / 2, SPRITE_WIDTH, SPRITE_HEIGHT};
+    // Load the background image
+    SDL_Surface *backgroundSurface = SDL_LoadBMP("/home/usr/2d game/sprites/Background.bmp");
+    if (backgroundSurface == NULL)
+    {
+        std::cerr << "SDL_LoadBMP Error: " << SDL_GetError() << std::endl;
+        SDL_DestroyTexture(spriteSheetTexture);
+        SDL_DestroyRenderer(renderer);
+        SDL_DestroyWindow(window);
+        IMG_Quit();
+        SDL_Quit();
+        return 1;
+    }
+
+    SDL_Texture *backgroundTexture = SDL_CreateTextureFromSurface(renderer, backgroundSurface);
+    SDL_FreeSurface(backgroundSurface); // Free the surface as we no longer need it
+    if (backgroundTexture == NULL)
+    {
+        std::cerr << "SDL_CreateTextureFromSurface Error: " << SDL_GetError() << std::endl;
+        SDL_DestroyTexture(spriteSheetTexture);
+        SDL_DestroyRenderer(renderer);
+        SDL_DestroyWindow(window);
+        IMG_Quit();
+        SDL_Quit();
+        return 1;
+    }
+
+    // Initial position of the Zombie
+    SDL_Rect dstRect = {ypos, xpos, SPRITE_WIDTH, SPRITE_HEIGHT};
 
     // Animation variables
     int currentFrame = 0;
     Uint32 lastFrameTime = 0; // To track time between frame updates
 
     // Calculate the frame duration based on the desired frame rate
-    Uint32 frameDuration = 1000 / FRAME_RATE; 
+    Uint32 frameDuration = 1000 / FRAME_RATE;
 
     // Main game loop
     while (running)
@@ -99,9 +136,17 @@ int main(int argc, const char *argv[])
         SDL_Event event;
         while (SDL_PollEvent(&event))
         {
+            if (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_F11)
+            {
+                toggleFullscreen(window);
+            }
+
             if (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_ESCAPE)
             {
                 running = false;
+            }
+            else if (event.key.keysym.sym == SDLK_f)
+            {
             }
             else if (event.type == SDL_QUIT)
             {
@@ -129,9 +174,12 @@ int main(int argc, const char *argv[])
 
         SDL_Rect srcRect = {frameX, frameY, SPRITE_WIDTH, SPRITE_HEIGHT};
 
-        // Clear the screen
+        // Clear the screen with a color
         SDL_SetRenderDrawColor(renderer, 200, 200, 200, 255);
         SDL_RenderClear(renderer);
+
+        // Render the background image
+        SDL_RenderCopy(renderer, backgroundTexture, NULL, NULL);
 
         // Render the current frame of the sprite
         SDL_RenderCopy(renderer, spriteSheetTexture, &srcRect, &dstRect);
@@ -152,6 +200,7 @@ int main(int argc, const char *argv[])
 
     // Clean up resources
     SDL_DestroyTexture(spriteSheetTexture);
+    SDL_DestroyTexture(backgroundTexture);
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
     IMG_Quit();
