@@ -1,161 +1,227 @@
-#include <SDL2/SDL.h>
-#include <SDL2/SDL_image.h> // Include SDL_image for image loading
-#include <iostream>
+#include "Constants.hpp"
+#include "Sprite.hpp"
+#include "Utils.hpp"
+#include "SDLManager.hpp"
+#include <vector>
 
-#define SCREEN_WIDTH 1280
-#define SCREEN_HEIGHT 720
-#define SPRITE_WIDTH 140
-#define SPRITE_HEIGHT 200 // Rounded height of each frame
-#define FRAME_RATE 60 // Desired frame rate
-
+bool showHitboxes = true;
+bool sprinting = false;
+bool lookingLeft = true;
+bool movingDown = false;
+bool movingUp = false;
+bool movingLeft = false;
+bool movingRight = false;
+bool jump = false;
 bool running;
-
-// Number of frames in the animation
-const int TOTAL_FRAMES = 6;
-
-// Frames per row in the spritesheet
-const int FRAMES_PER_ROW = 6;
-
-// Delay between frames in milliseconds
-const int FRAME_DELAY = 150;
+bool shooting = false;
+Uint32 shootingEndTime = 0;
 
 int main(int argc, const char *argv[])
 {
     running = true;
 
-    // Initialize SDL and SDL_image
-    if (SDL_Init(SDL_INIT_VIDEO) != 0)
+    SDL_Window *window = nullptr;
+    SDL_Renderer *renderer = nullptr;
+
+    // Initialize SDL and create window and renderer
+    if (!initSDL(window, renderer))
     {
-        std::cerr << "SDL_Init Error: " << SDL_GetError() << std::endl;
+        std::cerr << "Failed to initialize SDL.\n";
         return 1;
     }
 
-    // Initialize SDL_image with PNG support
-    if (!(IMG_Init(IMG_INIT_PNG) & IMG_INIT_PNG))
+    SDL_Texture *spriteSheetTexture = nullptr;
+    SDL_Texture *backgroundTexture = nullptr;
+    SDL_Texture *MG1SpriteSheetTexture = nullptr;
+    SDL_Texture *MG2SpriteSheetTexture = nullptr;
+    SDL_Texture *MGRUNSpriteSheetTexture = nullptr;
+    SDL_Texture *LEFTMGRUNSpriteSheetTexture = nullptr;
+    SDL_Texture *LEFTMGSHOOTSpriteSheetTexture = nullptr;
+
+    // Load textures
+    if (!loadTextures(renderer, spriteSheetTexture, backgroundTexture) ||
+        !(MG1SpriteSheetTexture = MainGuy1(renderer)) ||
+        !(MG2SpriteSheetTexture = MainGuy2(renderer)) ||
+        !(LEFTMGRUNSpriteSheetTexture = MainGuyLEFTRUN(renderer)) ||
+        !(LEFTMGSHOOTSpriteSheetTexture = MainGuyRightShot(renderer)) ||
+        !(MGRUNSpriteSheetTexture = MainGuyRUN(renderer)))
     {
-        std::cerr << "IMG_Init Error: " << IMG_GetError() << std::endl;
-        SDL_Quit();
+        std::cerr << "Error loading textures.\n";
+        cleanup(window, renderer, spriteSheetTexture, backgroundTexture, MG1SpriteSheetTexture, MG2SpriteSheetTexture, MGRUNSpriteSheetTexture, LEFTMGRUNSpriteSheetTexture, LEFTMGSHOOTSpriteSheetTexture);
         return 1;
     }
 
-    SDL_Window *window = SDL_CreateWindow("2D Game", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, SCREEN_WIDTH, SCREEN_HEIGHT, 0);
-    if (window == NULL)
-    {
-        std::cerr << "SDL_CreateWindow Error: " << SDL_GetError() << std::endl;
-        IMG_Quit();
-        SDL_Quit();
-        return 1;
-    }
-
-    SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
-    if (renderer == NULL)
-    {
-        std::cerr << "SDL_CreateRenderer Error: " << SDL_GetError() << std::endl;
-        SDL_DestroyWindow(window);
-        IMG_Quit();
-        SDL_Quit();
-        return 1;
-    }
-
-    // Load the spritesheet image
-    SDL_Surface *spriteSheetSurface = IMG_Load("or-removebg-preview.png");
-    if (spriteSheetSurface == NULL)
-    {
-        std::cerr << "IMG_Load Error: " << IMG_GetError() << std::endl;
-        SDL_DestroyRenderer(renderer);
-        SDL_DestroyWindow(window);
-        IMG_Quit();
-        SDL_Quit();
-        return 1;
-    }
-
-    SDL_Texture *spriteSheetTexture = SDL_CreateTextureFromSurface(renderer, spriteSheetSurface);
-    SDL_FreeSurface(spriteSheetSurface); // Free the surface as we no longer need it
-    if (spriteSheetTexture == NULL)
-    {
-        std::cerr << "SDL_CreateTextureFromSurface Error: " << SDL_GetError() << std::endl;
-        SDL_DestroyRenderer(renderer);
-        SDL_DestroyWindow(window);
-        IMG_Quit();
-        SDL_Quit();
-        return 1;
-    }
-
-    // Initial position of the stickman
-    SDL_Rect dstRect = {SCREEN_WIDTH / 2 - SPRITE_WIDTH / 2, SCREEN_HEIGHT / 2 - SPRITE_HEIGHT / 2, SPRITE_WIDTH, SPRITE_HEIGHT};
-
-    // Animation variables
-    int currentFrame = 0;
-    Uint32 lastFrameTime = 0; // To track time between frame updates
-
-    // Calculate the frame duration based on the desired frame rate
-    Uint32 frameDuration = 1000 / FRAME_RATE; 
+    // Create the main sprite with MG1SpriteSheetTexture
+    Sprite mainSprite(980, 450, MAIN_GUY_WIDTH, MAIN_GUY_HEIGHT, MG1SpriteSheetTexture, TOTAL_FRAMES_MAIN_GUY, FRAMES_PER_ROW_MAIN_GUY, FRAME_DELAY, MAIN_GUY_SPEED);
+    Sprite gangsterSprite(50, 450, GANGSTER_WIDTH, GANGSTER_HEIGHT, spriteSheetTexture, TOTAL_FRAMES_GANGSTER, FRAMES_PER_ROW_GANGSTER_WALK, FRAME_DELAY, GANGSTER_SPEED);
+    Uint32 frameDuration = (FRAME_RATE > 0) ? 1000 / FRAME_RATE : 16; // Fallback to a default value
 
     // Main game loop
     while (running)
     {
         Uint32 frameStartTime = SDL_GetTicks(); // Track the start time of the frame
 
+        // Handle events
         SDL_Event event;
         while (SDL_PollEvent(&event))
         {
-            if (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_ESCAPE)
+            if (event.type == SDL_QUIT)
             {
                 running = false;
             }
-            else if (event.type == SDL_QUIT)
+            else if (event.type == SDL_KEYDOWN)
             {
-                running = false;
+                switch (event.key.keysym.sym)
+                {
+                case SDLK_LEFT:
+                case SDLK_a:
+                    movingLeft = true;
+                    lookingLeft = true;
+                    break;
+                case SDLK_RIGHT:
+                case SDLK_d:
+                    movingRight = true;
+                    lookingLeft = false;
+                    break;
+                case SDLK_UP:
+                case SDLK_w:
+                case SDLK_SPACE:
+                    jump = true;
+                    mainSprite.jump(); // Make the mainSprite jump
+                    break;
+                case SDLK_DOWN:
+                case SDLK_s:
+                    movingDown = true;
+                    break;
+                case SDLK_F11:
+                    toggleFullscreen(window);
+                    break;
+                case SDLK_ESCAPE:
+                    running = false;
+                    break;
+                case SDLK_LSHIFT:
+                    sprinting = true;
+                    break;
+                }
+            }
+            else if (event.type == SDL_KEYUP)
+            {
+                switch (event.key.keysym.sym)
+                {
+                case SDLK_LEFT:
+                case SDLK_a:
+                    movingLeft = false;
+                    break;
+                case SDLK_RIGHT:
+                case SDLK_d:
+                    movingRight = false;
+                    break;
+                case SDLK_UP:
+                case SDLK_w:
+                case SDLK_SPACE:
+                    jump = false;
+                    break;
+                case SDLK_DOWN:
+                case SDLK_s:
+                    movingDown = false;
+                    break;
+                case SDLK_LSHIFT:
+                    sprinting = false;
+                    break;
+                }
+            }
+            else if (event.type == SDL_MOUSEBUTTONDOWN)
+            {
+                shooting = true;
+                shootingEndTime = SDL_GetTicks() + SHOOTING_DELAY; // Set the end time for shooting
             }
         }
 
-        // Get the current time
-        Uint32 currentTime = SDL_GetTicks();
+        int mouseX, mouseY;
+        SDL_GetMouseState(&mouseX, &mouseY);
 
-        // Update frame if enough time has passed
-        if (currentTime > lastFrameTime + FRAME_DELAY)
+        // Update sprite texture based on state
+        if (shooting)
         {
-            currentFrame++;
-            if (currentFrame >= TOTAL_FRAMES)
-            {
-                currentFrame = 0; // Loop back to the first frame
-            }
-            lastFrameTime = currentTime; // Reset last frame time
+            mainSprite.setTexture(MG2SpriteSheetTexture); // Switch to the shooting texture
+            mainSprite.applyDamageToGangsterIfNeeded(mouseX, mouseY, gangsterSprite, shooting);
+        }
+        else if (movingRight || movingLeft || movingDown)
+        {
+            mainSprite.setTexture(movingRight ? MGRUNSpriteSheetTexture : LEFTMGRUNSpriteSheetTexture);
+        }
+        else
+        {
+            mainSprite.setTexture(MG1SpriteSheetTexture); // Switch back to idle texture
         }
 
-        // Calculate the source rectangle for the current frame
-        int frameX = (currentFrame % FRAMES_PER_ROW) * SPRITE_WIDTH;
-        int frameY = (currentFrame / FRAMES_PER_ROW) * SPRITE_HEIGHT;
+        if (SDL_GetTicks() > shootingEndTime && shooting)
+        {
+            shooting = false;                             // End the shooting state
+            mainSprite.setTexture(MG1SpriteSheetTexture); // Switch back to idle texture
+        }
 
-        SDL_Rect srcRect = {frameX, frameY, SPRITE_WIDTH, SPRITE_HEIGHT};
+        // Handle movement and texture switching
+        if (movingRight && !movingLeft)
+        {
+            mainSprite.setSpeed(sprinting ? SPRINT_SPEED : NORMAL_SPEED);
+            mainSprite.moveRight();
+        }
+        else if (movingLeft && !movingRight)
+        {
+            mainSprite.setSpeed(sprinting ? SPRINT_SPEED : NORMAL_SPEED);
+            mainSprite.moveLeft();
+        }
+        else if (movingDown)
+        {
+            mainSprite.moveDown();
+        }
 
-        // Clear the screen
-        SDL_SetRenderDrawColor(renderer, 200, 200, 200, 255);
+        // Update the main sprite's position and animation
+        mainSprite.updatePosition();      // Update position based on gravity and jumping
+        mainSprite.updateAnimation();     // Update animation frame
+        gangsterSprite.updatePosition();  // Update position based on gravity and jumping
+        gangsterSprite.updateAnimation(); // Update animation frame
+
+        // Clear the screen with a color
         SDL_RenderClear(renderer);
 
-        // Render the current frame of the sprite
-        SDL_RenderCopy(renderer, spriteSheetTexture, &srcRect, &dstRect);
+        // Render the background image
+        SDL_RenderCopy(renderer, backgroundTexture, NULL, NULL);
 
-        // Present the rendered frame
+        // Drawing the main sprite
+        SDL_Rect dstRect = {mainSprite.getX(), mainSprite.getY(),
+                            static_cast<int>(MAIN_GUY_WIDTH * MAIN_GUY_SCALE),
+                            static_cast<int>(MAIN_GUY_HEIGHT * MAIN_GUY_SCALE)};
+        SDL_Rect srcRect = mainSprite.getSourceRect(); // Store the source rectangle
+        SDL_RenderCopy(renderer, mainSprite.getTexture(), &srcRect, &dstRect);
+
+        // Drawing the gangster sprite
+        SDL_Rect dstRect1 = {gangsterSprite.getX(), gangsterSprite.getY(),
+                             static_cast<int>(GANGSTER_WIDTH * GANGSTER_SCALE),
+                             static_cast<int>(GANGSTER_HEIGHT * GANGSTER_SCALE)};
+        SDL_Rect srcRect1 = gangsterSprite.getSourceRect(); // Store the source rectangle
+        SDL_RenderCopy(renderer, gangsterSprite.getTexture(), &srcRect1, &dstRect1);
+        if (showHitboxes)
+        {
+            mainSprite.drawHitbox(renderer);
+            gangsterSprite.drawHitbox(renderer);
+        }
+        // Present the updated renderer
         SDL_RenderPresent(renderer);
 
-        // Calculate the time taken for the current frame
+        // Cap the frame rate
         Uint32 frameEndTime = SDL_GetTicks();
-        Uint32 frameTime = frameEndTime - frameStartTime;
+        Uint32 frameElapsedTime = frameEndTime - frameStartTime;
 
-        // Delay to maintain frame rate
-        if (frameTime < frameDuration)
+        if (frameElapsedTime < frameDuration)
         {
-            SDL_Delay(frameDuration - frameTime);
+            SDL_Delay(frameDuration - frameElapsedTime);
         }
     }
 
-    // Clean up resources
-    SDL_DestroyTexture(spriteSheetTexture);
-    SDL_DestroyRenderer(renderer);
-    SDL_DestroyWindow(window);
-    IMG_Quit();
-    SDL_Quit();
+    // Clean up resources and quit SDL
+    cleanup(window, renderer, spriteSheetTexture, backgroundTexture, MG1SpriteSheetTexture, MG2SpriteSheetTexture, MGRUNSpriteSheetTexture, LEFTMGRUNSpriteSheetTexture, LEFTMGSHOOTSpriteSheetTexture);
 
     return 0;
 }
